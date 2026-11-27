@@ -1,3 +1,13 @@
+## rafaelgaspar fork
+
+This repository is a [rafaelgaspar](https://github.com/rafaelgaspar) fork of [envoyproxy/envoy](https://github.com/envoyproxy/envoy). Integration releases ship from the **`rafaelgaspar`** branch as `ghcr.io/rafaelgaspar/envoy:vX.Y.Z-rafaelgaspar.N` (distroless multi-arch; `latest` on publish).
+
+| Layer | Branch | Notes |
+| --- | --- | --- |
+| Fork infra | `feat/rafaelgaspar` | fork-pack, GHCR distroless, tag-bump; upstream CI removed |
+
+Fork workflow: `.cursor/skills/rafaelgaspar-fork/SKILL.md` (from [fork-pack](https://github.com/rafaelgaspar/fork-pack)).
+
 ![Envoy Logo](https://github.com/envoyproxy/artwork/blob/main/PNG/Envoy_Logo_Final_PANTONE.png)
 
 [Cloud-native high-performance edge/middle/service proxy](https://www.envoyproxy.io/)

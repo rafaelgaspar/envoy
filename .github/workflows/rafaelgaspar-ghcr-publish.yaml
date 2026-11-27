@@ -1,0 +1,175 @@
+name: rafaelgaspar GHCR Publish
+
+on:
+  push:
+    branches:
+      - rafaelgaspar
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to publish (branch tip after tag-bump)
+        type: string
+        required: false
+        default: rafaelgaspar
+      upstream_tag:
+        description: Upstream tag the stack was rebuilt onto
+        type: string
+        required: false
+        default: ''
+
+env:
+  IMAGE_NAME: ghcr.io/rafaelgaspar/envoy
+
+permissions: {}
+
+jobs:
+  release-binary:
+    name: Bazel release (${{ matrix.docker_platform }})
+    runs-on: k3s-home-dind
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            envoy_arch: x64
+          - docker_platform: linux/arm64
+            envoy_arch: arm64
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Build release tarball
+        env:
+          ENVOY_DOCKER_BUILD_DIR: ${{ runner.temp }}/envoy-docker-build
+          ENVOY_DOCKER_IN_DOCKER: '1'
+          ENVOY_DOCKER_PLATFORM: ${{ matrix.docker_platform }}
+        run: ./ci/run_envoy_docker.sh release.server_only
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.envoy_arch }}
+          path: ${{ runner.temp }}/envoy-docker-build/envoy/${{ matrix.envoy_arch }}/bin/release.tar.zst
+          if-no-files-found: error
+
+  publish:
+    name: Tag, build distroless, and push
+    needs: release-binary
+    runs-on: k3s-home-dind
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Checkout fork-pack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rafaelgaspar/fork-pack
+          ref: main
+          path: .fork-pack
+
+      - name: Configure git
+        run: |
+          git config user.name "Rafael Antunes"
+          git config user.email "me@rafaelgaspar.xyz"
+
+      - name: Fetch upstream tags
+        run: |
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/envoyproxy/envoy.git
+          else
+            git remote add upstream https://github.com/envoyproxy/envoy.git
+          fi
+          git fetch --tags upstream
+
+      - name: Resolve integration tag
+        id: release
+        run: |
+          chmod +x .fork-pack/scripts/resolve-integration-tag.sh
+          .fork-pack/scripts/resolve-integration-tag.sh 'v*.*.*' '^v[0-9]+\.[0-9]+\.[0-9]+$' "${{ inputs.upstream_tag }}"
+
+      - name: Create and push integration tag
+        if: steps.release.outputs.skip_release != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git tag -a "${TAG}" -m "rafaelgaspar integration release ${TAG}"
+          git push origin "${TAG}"
+
+      - name: Create GitHub release
+        if: steps.release.outputs.skip_release != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          body=$(cat <<EOF
+          rafaelgaspar integration release based on upstream ${{ steps.release.outputs.base_tag }}.
+
+          Container image (distroless): \`${{ env.IMAGE_NAME }}:${TAG}\`
+          EOF
+          )
+          gh release create "${TAG}" \
+            --repo rafaelgaspar/envoy \
+            --title "${TAG}" \
+            --notes "${body}" \
+            --target rafaelgaspar
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: false
+
+      - name: Stage Docker build contexts
+        run: |
+          mkdir -p linux/amd64 linux/arm64
+          cp artifacts/release-x64/release.tar.zst linux/amd64/release.tar.zst
+          cp artifacts/release-arm64/release.tar.zst linux/arm64/release.tar.zst
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.release.outputs.tag }}
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+
+      - name: Log into ghcr.io
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Build and push distroless image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: distribution/docker/Dockerfile-envoy
+          target: envoy-distroless
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          provenance: false

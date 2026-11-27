@@ -33,6 +33,8 @@
 !.yamllint
 !.zuul
 !.zuul.yaml
+!.cursor
+!.claude
 
 #############################
 # Bazel & build system
@@ -128,3 +130,14 @@ mobile/*.tulsiconf-user
 mobile/tulsi-workspace
 test/extensions/dynamic_modules/test_data/rust/Cargo.lock
 .devcontainer/Dockerfile
+
+
+# agent skills (real files under .cursor/skills; .claude/skills is a symlink)
+.claude/*
+!.claude/skills
+.cursor/*
+!.cursor/skills
+
+# fork-pack CI checkout and tag-bump log (never commit)
+.fork-pack/
+rebuild.log
