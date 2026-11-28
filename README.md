@@ -1,6 +1,6 @@
 ## rafaelgaspar fork
 
-This repository is a [rafaelgaspar](https://github.com/rafaelgaspar) fork of [envoyproxy/envoy](https://github.com/envoyproxy/envoy). Integration releases ship from the **`rafaelgaspar`** branch as `ghcr.io/rafaelgaspar/envoy:vX.Y.Z-rafaelgaspar.N` (distroless multi-arch; `latest` on publish).
+This repository is a [rafaelgaspar](https://github.com/rafaelgaspar) fork of [envoyproxy/envoy](https://github.com/envoyproxy/envoy). Integration releases ship from the **`rafaelgaspar`** branch as `ghcr.io/rafaelgaspar/envoy:vX.Y.Z-rafaelgaspar.N` (distroless **linux/amd64**; `latest` on publish).
 
 | Layer | Branch | Notes |
 | --- | --- | --- |

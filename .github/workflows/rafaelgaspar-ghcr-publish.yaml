@@ -24,17 +24,9 @@ permissions: {}
 
 jobs:
   release-binary:
-    name: Bazel release (${{ matrix.docker_platform }})
-    runs-on: k3s-home-dind
+    name: Bazel release (linux/amd64)
+    runs-on: ubuntu-latest
     timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - docker_platform: linux/amd64
-            envoy_arch: x64
-          - docker_platform: linux/arm64
-            envoy_arch: arm64
     permissions:
       contents: read
     steps:
@@ -47,20 +39,19 @@ jobs:
         env:
           ENVOY_DOCKER_BUILD_DIR: ${{ runner.temp }}/envoy-docker-build
           ENVOY_DOCKER_IN_DOCKER: '1'
-          ENVOY_DOCKER_PLATFORM: ${{ matrix.docker_platform }}
-        run: ./ci/run_envoy_docker.sh release.server_only
+        run: ./ci/run_envoy_docker.sh './ci/do_ci.sh release.server_only'
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.envoy_arch }}
-          path: ${{ runner.temp }}/envoy-docker-build/envoy/${{ matrix.envoy_arch }}/bin/release.tar.zst
+          name: release-x64
+          path: ${{ runner.temp }}/envoy-docker-build/envoy/x64/bin/release.tar.zst
           if-no-files-found: error
 
   publish:
     name: Tag, build distroless, and push
     needs: release-binary
-    runs-on: k3s-home-dind
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
       contents: write
@@ -116,7 +107,7 @@ jobs:
           body=$(cat <<EOF
           rafaelgaspar integration release based on upstream ${{ steps.release.outputs.base_tag }}.
 
-          Container image (distroless): \`${{ env.IMAGE_NAME }}:${TAG}\`
+          Container image (distroless, amd64): \`${{ env.IMAGE_NAME }}:${TAG}\`
           EOF
           )
           gh release create "${TAG}" \
@@ -128,15 +119,13 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
+          name: release-x64
           path: artifacts
-          merge-multiple: false
 
-      - name: Stage Docker build contexts
+      - name: Stage Docker build context
         run: |
-          mkdir -p linux/amd64 linux/arm64
-          cp artifacts/release-x64/release.tar.zst linux/amd64/release.tar.zst
-          cp artifacts/release-arm64/release.tar.zst linux/arm64/release.tar.zst
+          mkdir -p linux/amd64
+          cp artifacts/release.tar.zst linux/amd64/release.tar.zst
 
       - name: Extract Docker metadata
         id: meta
@@ -156,9 +145,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
@@ -171,5 +157,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           provenance: false
